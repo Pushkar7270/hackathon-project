@@ -35,7 +35,6 @@ module.exports = {
             '**/build/**',
             '**/dist/**',
             '**/coverage/**',
-            '**/public/**',
           ],
         };
       }

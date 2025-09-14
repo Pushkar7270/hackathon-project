@@ -1,5 +1,4 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Depends
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -9,16 +8,19 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict
 import uuid
-from datetime import datetime, date, timezone
-import hashlib
+from datetime import datetime, date, timezone, timedelta
+import bcrypt
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
 # MongoDB connection
-mongo_url = os.environ['MONGO_URL']
+mongo_url = os.environ.get('MONGO_URL')
+db_name = os.environ.get('DB_NAME')
+if not mongo_url or not db_name:
+    raise RuntimeError("Missing MONGO_URL or DB_NAME in environment variables")
 client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+db = client[db_name]
 
 # Create the main app
 app = FastAPI()
@@ -26,29 +28,23 @@ app = FastAPI()
 # Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
 
-# Security
-security = HTTPBearer(auto_error=False)
-
 # Helper functions
 def prepare_for_mongo(data):
-    """Convert date objects to ISO strings for MongoDB storage"""
+    """Convert date objects to MongoDB native date type"""
     if isinstance(data, dict):
         for key, value in data.items():
             if isinstance(value, date):
-                data[key] = value.isoformat()
+                data[key] = datetime.combine(value, datetime.min.time())
             elif isinstance(value, datetime):
-                data[key] = value.isoformat()
+                data[key] = value
     return data
 
 def parse_from_mongo(item):
-    """Parse ISO strings back to date objects from MongoDB"""
+    """Parse MongoDB native date type back to date objects"""
     if isinstance(item, dict):
         for key, value in item.items():
-            if key == 'date' and isinstance(value, str):
-                try:
-                    item[key] = datetime.fromisoformat(value).date()
-                except:
-                    pass
+            if key == 'date' and isinstance(value, datetime):
+                item[key] = value.date()
     return item
 
 # Models
@@ -106,26 +102,30 @@ class StudentStatus(BaseModel):
 
 # Authentication functions
 def hash_password(password: str) -> str:
-    return hashlib.sha256(password.encode()).hexdigest()
+    salt = bcrypt.gensalt()
+    return bcrypt.hashpw(password.encode(), salt).decode()
 
 def verify_password(password: str, hashed: str) -> bool:
-    return hash_password(password) == hashed
+    try:
+        return bcrypt.checkpw(password.encode(), hashed.encode())
+    except Exception:
+        return False
 
 # Initialize default teacher
 async def init_default_teacher():
-    existing_teacher = await db.teachers.find_one({"teacher_id": "abcd@"})
+    existing_teacher = await db.teachers.find_one({"teacher_id": "Ramandeep@singh"})
     if not existing_teacher:
         teacher = Teacher(
-            teacher_id="abcd@",
-            name="Default Teacher",
-            password_hash=hash_password("1234")
+            teacher_id="Ramandeep@singh",
+            name="Ramandeep Singh",
+            password_hash=hash_password("456123")
         )
-        await db.teachers.insert_one(teacher.dict())
+        await db.teachers.insert_one(teacher.model_dump())
 
 # Initialize sample students
 async def init_sample_students():
     students_data = [
-        {"student_id": "STU001", "name": "Arjun Singh", "image_path": "/images/student1.jpg"},
+        {"student_id": "STU001", "name": "Karandeep Singh", "image_path": "/karandeep.jpeg"},
         {"student_id": "STU002", "name": "Priya Kaur", "image_path": "/images/student2.jpg"},
         {"student_id": "STU003", "name": "Rajesh Kumar", "image_path": "/images/student3.jpg"},
         {"student_id": "STU004", "name": "Simran Dhillon", "image_path": "/images/student4.jpg"},
@@ -136,11 +136,10 @@ async def init_sample_students():
         existing = await db.students.find_one({"student_id": student_data["student_id"]})
         if not existing:
             student = Student(**student_data)
-            await db.students.insert_one(student.dict())
+            await db.students.insert_one(student.model_dump())
     
     # Initialize sample attendance data for the past 30 days
     import random
-    from datetime import timedelta
     
     students = await db.students.find().to_list(100)
     base_date = date.today() - timedelta(days=30)
@@ -150,7 +149,7 @@ async def init_sample_students():
             attendance_date = base_date + timedelta(days=i)
             existing = await db.attendance.find_one({
                 "student_id": student["student_id"],
-                "date": attendance_date.isoformat()
+                "date": datetime.combine(attendance_date, datetime.min.time())
             })
             
             if not existing:
@@ -182,7 +181,7 @@ async def get_students():
 async def get_student_attendance(student_id: str, date_filter: Optional[str] = None):
     query = {"student_id": student_id}
     if date_filter:
-        query["date"] = date_filter
+        query["date"] = datetime.fromisoformat(date_filter)
     
     attendance_records = await db.attendance.find(query).to_list(100)
     return [parse_from_mongo(record) for record in attendance_records]
@@ -191,25 +190,33 @@ async def get_student_attendance(student_id: str, date_filter: Optional[str] = N
 async def get_attendance_by_date(date_str: str):
     students = await db.students.find().to_list(100)
     result = []
+    date_obj = datetime.fromisoformat(date_str)
+    month_ago = date_obj - timedelta(days=30)
     
     for student in students:
         # Get attendance for specific date
         attendance = await db.attendance.find_one({
             "student_id": student["student_id"],
-            "date": date_str
+            "date": date_obj
         })
         
-        # Calculate monthly percentage (last 30 days)
+        # Monthly percentage (last 30 days)
         monthly_records = await db.attendance.find({
-            "student_id": student["student_id"]
+            "student_id": student["student_id"],
+            "date": {"$gte": month_ago, "$lte": date_obj}
         }).to_list(100)
         
         monthly_present = len([r for r in monthly_records if r["status"] == "present"])
         monthly_total = len(monthly_records)
         monthly_percentage = (monthly_present / monthly_total * 100) if monthly_total > 0 else 0
         
-        # Calculate overall percentage (all time)
-        overall_percentage = monthly_percentage  # For demo, using same as monthly
+        # Overall percentage (all time)
+        overall_records = await db.attendance.find({
+            "student_id": student["student_id"]
+        }).to_list(1000)
+        overall_present = len([r for r in overall_records if r["status"] == "present"])
+        overall_total = len(overall_records)
+        overall_percentage = (overall_present / overall_total * 100) if overall_total > 0 else 0
         
         student_attendance = StudentWithAttendance(
             id=student["id"],
@@ -229,24 +236,22 @@ async def get_attendance_by_date(date_str: str):
 async def mark_attendance(attendance_data: AttendanceUpdate):
     try:
         for record in attendance_data.attendance_records:
-            # Delete existing record for this student and date
-            await db.attendance.delete_one({
-                "student_id": record.student_id,
-                "date": record.date
-            })
-            
-            # Insert new record
+            date_obj = datetime.fromisoformat(record.date)
             new_record = AttendanceRecord(
                 student_id=record.student_id,
-                date=datetime.fromisoformat(record.date).date(),
+                date=date_obj.date(),
                 status=record.status
             )
-            record_dict = prepare_for_mongo(new_record.dict())
-            await db.attendance.insert_one(record_dict)
-        
+            record_dict = prepare_for_mongo(new_record.model_dump())
+            await db.attendance.replace_one(
+                {"student_id": record.student_id, "date": date_obj},
+                record_dict,
+                upsert=True
+            )
         return {"success": True, "message": f"Updated attendance for {len(attendance_data.attendance_records)} students"}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logging.error(f"Error marking attendance: {e}")
+        raise HTTPException(status_code=500, detail="Failed to mark attendance")
 
 @api_router.get("/student-status/{student_id}")
 async def get_student_status(student_id: str):
@@ -255,7 +260,7 @@ async def get_student_status(student_id: str):
         raise HTTPException(status_code=404, detail="Student not found")
     
     # Get all attendance records
-    attendance_records = await db.attendance.find({"student_id": student_id}).to_list(100)
+    attendance_records = await db.attendance.find({"student_id": student_id}).to_list(1000)
     
     if not attendance_records:
         return StudentStatus(
@@ -272,7 +277,7 @@ async def get_student_status(student_id: str):
     total_count = len(attendance_records)
     overall_percentage = (present_count / total_count * 100) if total_count > 0 else 0
     
-    absent_dates = [r["date"] for r in attendance_records if r["status"] == "absent"]
+    absent_dates = [r["date"].isoformat() if isinstance(r["date"], datetime) else str(r["date"]) for r in attendance_records if r["status"] == "absent"]
     
     return StudentStatus(
         id=student["id"],
@@ -293,27 +298,23 @@ async def get_student_status(student_id: str):
 async def external_mark_attendance(student_id: str, status: str = "present"):
     """API endpoint for external face recognition system to mark attendance"""
     try:
-        today = date.today()
-        
-        # Delete existing record for today
-        await db.attendance.delete_one({
-            "student_id": student_id,
-            "date": today.isoformat()
-        })
-        
-        # Insert new record
+        today = datetime.combine(date.today(), datetime.min.time())
         record = AttendanceRecord(
             student_id=student_id,
-            date=today,
+            date=today.date(),
             status=status,
             marked_by="face_recognition"
         )
         record_dict = prepare_for_mongo(record.dict())
-        await db.attendance.insert_one(record_dict)
-        
+        await db.attendance.replace_one(
+            {"student_id": student_id, "date": today},
+            record_dict,
+            upsert=True
+        )
         return {"success": True, "message": f"Attendance marked for {student_id}"}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logging.error(f"Error in external mark attendance: {e}")
+        raise HTTPException(status_code=500, detail="Failed to mark attendance externally")
 
 # Include the router in the main app
 app.include_router(api_router)
@@ -333,12 +334,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-@app.on_event("startup")
-async def startup_event():
-    await init_default_teacher()
-    await init_sample_students()
-    logger.info("Application startup complete")
-
 @app.on_event("shutdown")
 async def shutdown_db_client():
     client.close()
+
+@app.on_event("startup")
+async def lifespan():
+    await init_default_teacher()
+    await init_sample_students()
+    logger.info("Application startup complete")
