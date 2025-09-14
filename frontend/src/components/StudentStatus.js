@@ -52,27 +52,69 @@ const StudentStatus = ({ teacherInfo, onLogout }) => {
     if (!studentData) return null;
 
     const today = new Date();
-    const currentMonth = today.getMonth();
-    const currentYear = today.getFullYear();
-    
-    const firstDay = new Date(currentYear, currentMonth, 1);
-    const lastDay = new Date(currentYear, currentMonth + 1, 0);
+    const firstDay = new Date(selectedYear, selectedMonth, 1);
+    const lastDay = new Date(selectedYear, selectedMonth + 1, 0);
     const daysInMonth = lastDay.getDate();
     const startingDayOfWeek = firstDay.getDay();
 
-    const absentDates = studentData.absent_dates.map(date => {
-      const d = new Date(date);
-      return d.getDate();
-    });
+    // Filter absent dates for the selected month/year
+    const absentDatesInMonth = studentData.absent_dates
+      .map(date => new Date(date))
+      .filter(date => date.getMonth() === selectedMonth && date.getFullYear() === selectedYear)
+      .map(date => date.getDate());
 
     const calendar = [];
     const monthNames = ["January", "February", "March", "April", "May", "June",
       "July", "August", "September", "October", "November", "December"];
 
-    // Calendar header
+    // Calendar header with navigation
     calendar.push(
       <div key="header" className="calendar-header">
-        <h4>{monthNames[currentMonth]} {currentYear}</h4>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <button
+            onClick={() => {
+              if (selectedMonth === 0) {
+                setSelectedMonth(11);
+                setSelectedYear(selectedYear - 1);
+              } else {
+                setSelectedMonth(selectedMonth - 1);
+              }
+            }}
+            style={{
+              background: 'none',
+              border: '1px solid #d1d5db',
+              borderRadius: '4px',
+              padding: '0.25rem 0.5rem',
+              cursor: 'pointer',
+              color: '#1e40af'
+            }}
+          >
+            ← Prev
+          </button>
+          <h4 style={{ margin: 0, minWidth: '180px', textAlign: 'center' }}>
+            {monthNames[selectedMonth]} {selectedYear}
+          </h4>
+          <button
+            onClick={() => {
+              if (selectedMonth === 11) {
+                setSelectedMonth(0);
+                setSelectedYear(selectedYear + 1);
+              } else {
+                setSelectedMonth(selectedMonth + 1);
+              }
+            }}
+            style={{
+              background: 'none',
+              border: '1px solid #d1d5db',
+              borderRadius: '4px',
+              padding: '0.25rem 0.5rem',
+              cursor: 'pointer',
+              color: '#1e40af'
+            }}
+          >
+            Next →
+          </button>
+        </div>
         <div style={{ fontSize: '0.8rem', color: '#6b7280' }}>
           <span style={{ color: '#991b1b' }}>● Absent</span>
           <span style={{ marginLeft: '1rem', color: '#166534' }}>● Present</span>
@@ -94,13 +136,21 @@ const StudentStatus = ({ teacherInfo, onLogout }) => {
 
     // Days of the month
     const monthDays = [];
+    const isCurrentMonth = selectedMonth === today.getMonth() && selectedYear === today.getFullYear();
+    
     for (let day = 1; day <= daysInMonth; day++) {
-      const isAbsent = absentDates.includes(day);
-      const isToday = day === today.getDate() && currentMonth === today.getMonth() && currentYear === today.getFullYear();
+      const isAbsent = absentDatesInMonth.includes(day);
+      const isToday = isCurrentMonth && day === today.getDate();
+      const isPastDay = selectedYear < today.getFullYear() || 
+                       (selectedYear === today.getFullYear() && selectedMonth < today.getMonth()) ||
+                       (isCurrentMonth && day <= today.getDate());
       
       let dayClass = 'calendar-day';
-      if (isAbsent) dayClass += ' absent';
-      else if (day <= today.getDate()) dayClass += ' present';
+      if (isAbsent) {
+        dayClass += ' absent';
+      } else if (isPastDay) {
+        dayClass += ' present';
+      }
       if (isToday) dayClass += ' today';
 
       monthDays.push(
