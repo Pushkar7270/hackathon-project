@@ -322,11 +322,88 @@ const StudentStatus = ({ teacherInfo, onLogout }) => {
               <div className="card-header">
                 <h3 className="card-title">Monthly Attendance Calendar</h3>
                 <p className="card-description">
-                  Visual representation of attendance for the current month. Red dates indicate absences.
+                  Navigate through different months to view attendance history. Red dates indicate absences.
                 </p>
+              </div>
+
+              {/* Month/Year Selectors */}
+              <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', alignItems: 'center' }}>
+                <div>
+                  <label className="form-label" style={{ marginBottom: '0.25rem', fontSize: '0.9rem' }}>
+                    Month
+                  </label>
+                  <select
+                    className="form-select"
+                    value={selectedMonth}
+                    onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
+                    style={{ width: '140px', padding: '0.5rem' }}
+                  >
+                    <option value={0}>January</option>
+                    <option value={1}>February</option>
+                    <option value={2}>March</option>
+                    <option value={3}>April</option>
+                    <option value={4}>May</option>
+                    <option value={5}>June</option>
+                    <option value={6}>July</option>
+                    <option value={7}>August</option>
+                    <option value={8}>September</option>
+                    <option value={9}>October</option>
+                    <option value={10}>November</option>
+                    <option value={11}>December</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="form-label" style={{ marginBottom: '0.25rem', fontSize: '0.9rem' }}>
+                    Year
+                  </label>
+                  <select
+                    className="form-select"
+                    value={selectedYear}
+                    onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+                    style={{ width: '100px', padding: '0.5rem' }}
+                  >
+                    <option value={2023}>2023</option>
+                    <option value={2024}>2024</option>
+                    <option value={2025}>2025</option>
+                    <option value={2026}>2026</option>
+                  </select>
+                </div>
+                <button
+                  onClick={() => {
+                    const today = new Date();
+                    setSelectedMonth(today.getMonth());
+                    setSelectedYear(today.getFullYear());
+                  }}
+                  className="btn btn-outline"
+                  style={{ marginTop: '1.5rem', padding: '0.5rem 1rem', fontSize: '0.8rem' }}
+                >
+                  Current Month
+                </button>
               </div>
               
               {generateCalendar()}
+
+              {/* Monthly Statistics for Selected Month */}
+              {studentData && (
+                <div style={{ marginTop: '1rem', padding: '1rem', background: '#f8fafc', borderRadius: '6px' }}>
+                  <h5 style={{ color: '#1e40af', marginBottom: '0.5rem', fontSize: '0.9rem' }}>
+                    {['January', 'February', 'March', 'April', 'May', 'June',
+                      'July', 'August', 'September', 'October', 'November', 'December'][selectedMonth]} {selectedYear} Statistics
+                  </h5>
+                  <div style={{ display: 'flex', gap: '2rem', fontSize: '0.8rem' }}>
+                    <span>
+                      <strong>Absent Days:</strong> {studentData.absent_dates
+                        .filter(date => {
+                          const d = new Date(date);
+                          return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
+                        }).length}
+                    </span>
+                    <span>
+                      <strong>Total Days:</strong> {new Date(selectedYear, selectedMonth + 1, 0).getDate()}
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
