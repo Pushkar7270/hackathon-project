@@ -11,6 +11,8 @@ const StudentStatus = ({ teacherInfo, onLogout }) => {
   const [studentData, setStudentData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
 
   const getStudentImage = (imagePath, studentId) => {
     const colors = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6'];
